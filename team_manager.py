@@ -2,8 +2,9 @@ import asyncio
 from dis_snek import Snake
 from dis_snek.models import Guild, Role, Member, message_command, listen, slash_command, slash_option, \
     InteractionContext, AutocompleteContext, Embed
+from dis_snek.models.events import Component
 from dis_snek.models.scale import Scale
-
+from operator import attrgetter
 
 class Team:
     def __init__(self, role: Role):
@@ -117,5 +118,96 @@ class TeamScale(Scale):
     group_info.autocomplete('group')(group_autocomplete)
 
 
+    @cog_subcommand(
+        base='role',
+        subcommand_group='add',
+        name='select',
+        description='Make a select that gives roles',
+        options=[
+            {
+                'name': 'roles',
+                'description': 'The roles you want to give, separated by |. Can be mentions or names',
+                'required': True,
+                'type': 3,
+            },
+            {
+                'name': 'create_roles',
+                'description': 'Whether to create any missing roles',
+                'required': False,
+                'type': 5,
+            },
+        ],
+    )
+    @commands.bot_has_permissions(manage_roles=True)
+    @commands.has_permissions(manage_roles=True)
+    async def role_select(self, ctx: InteractionContext, roles: str, create_roles: bool = False):
+        try:
+            roles: list[Role] = [
+                (
+                    await utils.get_or_make_role(ctx, role)
+                    if create_roles
+                    else await commands.RoleConverter().convert(ctx, role)
+                )
+                for role in roles.split('|')
+            ]
+            if None in roles:
+                raise commands.RoleNotFound
+
+        except commands.RoleNotFound:
+            return await ctx.send('One or more roles failed to convert')
+
+        options = [create_select_option(role.name, role.name) for role in roles]
+        select = create_select(
+            options=options,
+            custom_id='select_roles',
+            min_values=0,
+            max_values=len(options),
+        )
+
+        await ctx.send('Choose your roles here:', components=[create_actionrow(select)])
+
+    @listen()
+    async def on_component(self, event: Component):
+        ctx = event.context
+
+        if ctx.custom_id == 'select_roles':
+
+            all_roles = {
+                get(ctx.guild.roles, name=option['value'])
+                for option in ctx.component['options']
+            }
+            to_add = {
+                get(ctx.guild.roles, name=option)
+                for option in ctx.selected_options
+            }
+            to_remove = all_roles - to_add
+
+            await ctx.author.add_roles(*to_add)
+            await ctx.author.remove_roles(*to_remove)
+
+            await ctx.send('Roles changed!', ephemeral=True)
+
 def setup(bot):
     TeamScale(bot)
+
+def get(iterable, **attrs):
+    _all = all
+    attrget = attrgetter
+
+    if len(attrs) == 1:
+        k, v = attrs.popitem()
+        pred = attrget(k.replace('__', '.'))
+        for elem in iterable:
+            if pred(elem) == v:
+                return elem
+        return None
+
+    converted = [
+        (attrget(attr.replace('__', '.')), value)
+        for attr, value in attrs.items()
+    ]
+
+    for elem in iterable:
+        if _all(pred(elem) == value for pred, value in converted):
+            return elem
+    return None
