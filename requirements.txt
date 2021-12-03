@@ -1,0 +1,3 @@
+dis-snek
+python-dotenv
+orjson
