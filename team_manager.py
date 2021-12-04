@@ -1,10 +1,16 @@
-import asyncio
+from operator import attrgetter
+from typing import Union, Optional, TypeVar, Iterable
+
+import dis_snek
 from dis_snek import Snake
 from dis_snek.models import Guild, Role, Member, message_command, listen, slash_command, slash_option, \
-    InteractionContext, AutocompleteContext, Embed
+    InteractionContext, AutocompleteContext, Embed, SelectOption, Select, ActionRow, Button
 from dis_snek.models.events import Component
 from dis_snek.models.scale import Scale
-from operator import attrgetter
+
+# Why if this needed!?
+dis_snek.models.Role.__hash__ = dis_snek.models.SnowflakeObject.__hash__
+
 
 class Team:
     def __init__(self, role: Role):
@@ -117,80 +123,95 @@ class TeamScale(Scale):
 
     group_info.autocomplete('group')(group_autocomplete)
 
+    @slash_command(name='role', sub_cmd_name='select')
+    @slash_option('roles', 'The roles you want to give, separated by |. Can be mentions or names', 3, True)
+    @slash_option('content', 'What to say above the select', 3, True)
+    async def role_select(self, ctx: InteractionContext, roles: str, content: str):
+        roles: list[Role] = [
+            (
+                await get_role(ctx.guild, role)
+            )
+            for role in roles.split('|')
+        ]
+        if None in roles:
+            print(roles)
+            return await ctx.send('One of the roles was not found!')
 
-    @cog_subcommand(
-        base='role',
-        subcommand_group='add',
-        name='select',
-        description='Make a select that gives roles',
-        options=[
-            {
-                'name': 'roles',
-                'description': 'The roles you want to give, separated by |. Can be mentions or names',
-                'required': True,
-                'type': 3,
-            },
-            {
-                'name': 'create_roles',
-                'description': 'Whether to create any missing roles',
-                'required': False,
-                'type': 5,
-            },
-        ],
-    )
-    @commands.bot_has_permissions(manage_roles=True)
-    @commands.has_permissions(manage_roles=True)
-    async def role_select(self, ctx: InteractionContext, roles: str, create_roles: bool = False):
-        try:
-            roles: list[Role] = [
-                (
-                    await utils.get_or_make_role(ctx, role)
-                    if create_roles
-                    else await commands.RoleConverter().convert(ctx, role)
-                )
-                for role in roles.split('|')
-            ]
-            if None in roles:
-                raise commands.RoleNotFound
-
-        except commands.RoleNotFound:
-            return await ctx.send('One or more roles failed to convert')
-
-        options = [create_select_option(role.name, role.name) for role in roles]
-        select = create_select(
+        options = [SelectOption(role.name, role.name) for role in roles]
+        select = Select(
             options=options,
             custom_id='select_roles',
             min_values=0,
             max_values=len(options),
         )
 
-        await ctx.send('Choose your roles here:', components=[create_actionrow(select)])
+        await ctx.send('Select created!', ephemeral=True)
+        await ctx.channel.send(content=content, components=[ActionRow(select)])
+
+    @slash_command(name='role', sub_cmd_name='button')
+    @slash_option('role', 'The role you want to give', 8, True)
+    async def role_button(self, ctx: InteractionContext, role: Role, create_role: bool = False):
+        # role = await get_role(ctx.guild, role)
+        # if role is None:
+        #     return await ctx.send('No role found')
+
+        button = Button(label=role.name, style=1, custom_id='button_role')
+
+        await ctx.send(
+            f'Click the button to get the {role.name} role',
+            components=[ActionRow(button)],
+        )
 
     @listen()
     async def on_component(self, event: Component):
         ctx = event.context
 
+        # # print(dir(ctx))
+
+        # for item in dir(ctx):
+        #     if not item.startswith('__'):
+        #         print(f'{item}: {getattr(ctx, item)}')
+        # print(ctx.data['data']['values'])
+        #       # ['values'])
+
         if ctx.custom_id == 'select_roles':
+            options = ctx.data['message']['components'][0].components[0].options
 
             all_roles = {
                 get(ctx.guild.roles, name=option['value'])
-                for option in ctx.component['options']
+                for option in options
             }
+
             to_add = {
                 get(ctx.guild.roles, name=option)
-                for option in ctx.selected_options
+                for option in ctx.values
             }
             to_remove = all_roles - to_add
 
-            await ctx.author.add_roles(*to_add)
-            await ctx.author.remove_roles(*to_remove)
+            print(to_add)
+
+            [await ctx.author.add_role(role) for role in to_add]
+            [await ctx.author.remove_role(role) for role in to_remove]
+
+            await ctx.send('Roles changed!', ephemeral=True)
+
+        elif ctx.custom_id == 'button_role':
+            role = get(ctx.guild.roles, name=ctx.data['message']['components'][0].components[0].label)
+
+            if role in ctx.author.roles:
+                await ctx.author.remove_role(role)
+            else:
+                await ctx.author.add_role(role)
 
             await ctx.send('Roles changed!', ephemeral=True)
 
 def setup(bot):
     TeamScale(bot)
 
-def get(iterable, **attrs):
+
+_T = TypeVar('_T')
+def get(iterable: Iterable[_T], **attrs) -> Optional[_T]:
+
     _all = all
     attrget = attrgetter
 
@@ -211,3 +232,11 @@ def get(iterable, **attrs):
         if _all(pred(elem) == value for pred, value in converted):
             return elem
     return None
+
+async def get_role(guild: Guild, id_or_name: Union[int, str]) -> Optional[Role]:
+    if isinstance(id_or_name, int) or id_or_name.isnumeric():
+        return await guild.get_role(id_or_name)
+    else:
+        if id_or_name.startswith('<@&') and id_or_name.endswith('>') and id_or_name[2:-1].isdigit():
+            return await guild.get_role(id_or_name[2:-1])
+        return get(guild.roles, name=id_or_name)
