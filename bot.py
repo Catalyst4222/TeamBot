@@ -50,12 +50,12 @@ async def on_ready():
 
 # # Needed for proper things
 # async def main():
-#     bot.grow_scale('team_manager')
+#     bot.grow_scale('group_manager')
 #     load_dotenv()
 #     await bot.login(os.getenv('TOKEN'))
 #
 # asyncio.run(main())
 
-bot.grow_scale('team_manager')
+bot.grow_scale('group_manager')
 load_dotenv()
 bot.start(os.getenv('TOKEN'))

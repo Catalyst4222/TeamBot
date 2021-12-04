@@ -5,19 +5,19 @@ import dis_snek
 from dis_snek import Snake
 from dis_snek.models import Guild, Role, Member, message_command, listen, slash_command, slash_option, \
     InteractionContext, AutocompleteContext, Embed, SelectOption, Select, ActionRow, Button
-from dis_snek.models.events import Component
+from dis_snek.models.events import Component, MemberAdd
 from dis_snek.models.scale import Scale
 
 # Why if this needed!?
 dis_snek.models.Role.__hash__ = dis_snek.models.SnowflakeObject.__hash__
 
 
-class Team:
+class Group:
     def __init__(self, role: Role):
         self.role = role
 
     async def join(self, member: Member):
-        await member.add_role(self.role, reason='Team change')
+        await member.add_role(self.role, reason='Group change')
 
     @property
     def members(self) -> list[Member]:
@@ -33,21 +33,21 @@ class Team:
         return self.role.name
 
     def __repr__(self):
-        return f'<Team role={self.role.id} name="{self.name}">'
+        return f'<Group role={self.role.id} name="{self.name}">'
 
     def __hash__(self):
         return self.role.__hash__()
 
 
-class TeamScale(Scale):
+class GroupScale(Scale):
     def __init__(self, bot):
         self.bot: Snake = bot
-        self.groups: list[Team] = []
+        self.groups: list[Group] = []
         self.guild: Guild
 
     async def group_autocomplete(self, ctx: AutocompleteContext, group: str):
         groups = [str(group_) for group_ in self.groups
-                  if (group_.name.startswith(group) or group_.name.startswith('Team ' + group))]
+                  if (group_.name.startswith(group) or group_.name.startswith('Group ' + group))]
         await ctx.send(choices=groups)
 
     # noinspection PyAttributeOutsideInit
@@ -57,9 +57,25 @@ class TeamScale(Scale):
 
         self.guild = await self.bot.get_guild(910984528351338557)
         for role in self.guild.roles:
-            if role.name.startswith('Team '):
+            if role.name.startswith('Group '):
                 role.guild = self.guild
-                self.groups.append(Team(role=role))
+                self.groups.append(Group(role=role))
+
+        self.alert_role = await self.guild.get_role(916508698698973225)
+
+        # for member in self.guild.members:
+        #     if not await member.has_role(self.alert_role):
+        #         await member.add_role(self.alert_role)
+        #         await asyncio.sleep(5)
+        #     print('Member checked')
+        # print('Done')
+
+    @listen()
+    async def on_member_add(self, member: MemberAdd):
+        print('Member added')
+        await member.member.add_role(self.alert_role)
+
+
 
     @message_command(name='groups')
     async def groups(self, ctx):
@@ -90,9 +106,9 @@ class TeamScale(Scale):
     @slash_command(name='group', sub_cmd_name='create')
     @slash_option('name', 'The name of the group', 3, True)
     async def group_create(self, ctx: InteractionContext, name: str):
-        role = await self.guild.create_role('Team ' + name)
-        self.groups.append(Team(role=role))
-        await ctx.send(f'Team {name} created!')
+        role = await self.guild.create_role('Group ' + name)
+        self.groups.append(Group(role=role))
+        await ctx.send(f'Group {name} created!')
 
     # noinspection PyUnboundLocalVariable
     @slash_command(name='group', sub_cmd_name='info')
@@ -102,7 +118,7 @@ class TeamScale(Scale):
             msg = ''
             for group_ in self.groups:
                 msg += f'**__{group_.name}__**\n'
-                print(group_.members)
+                # print(group_.members)
                 for member in group_.members:
                     msg += member.display_name + '\n'
             # print(msg)
@@ -134,7 +150,7 @@ class TeamScale(Scale):
             for role in roles.split('|')
         ]
         if None in roles:
-            print(roles)
+            # print(roles)
             return await ctx.send('One of the roles was not found!')
 
         options = [SelectOption(role.name, role.name) for role in roles]
@@ -150,15 +166,17 @@ class TeamScale(Scale):
 
     @slash_command(name='role', sub_cmd_name='button')
     @slash_option('role', 'The role you want to give', 8, True)
-    async def role_button(self, ctx: InteractionContext, role: Role, create_role: bool = False):
+    @slash_option('content', 'What to say above the button', 3, True)
+    async def role_button(self, ctx: InteractionContext, role: Role, content: str):
         # role = await get_role(ctx.guild, role)
         # if role is None:
         #     return await ctx.send('No role found')
 
         button = Button(label=role.name, style=1, custom_id='button_role')
 
-        await ctx.send(
-            f'Click the button to get the {role.name} role',
+        await ctx.send('Button Created', ephemeral=True)
+        await ctx.channel.send(
+            content=content,
             components=[ActionRow(button)],
         )
 
@@ -188,7 +206,7 @@ class TeamScale(Scale):
             }
             to_remove = all_roles - to_add
 
-            print(to_add)
+            # print(to_add)
 
             [await ctx.author.add_role(role) for role in to_add]
             [await ctx.author.remove_role(role) for role in to_remove]
@@ -206,7 +224,7 @@ class TeamScale(Scale):
             await ctx.send('Roles changed!', ephemeral=True)
 
 def setup(bot):
-    TeamScale(bot)
+    GroupScale(bot)
 
 
 _T = TypeVar('_T')
