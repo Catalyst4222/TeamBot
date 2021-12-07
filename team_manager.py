@@ -1,7 +1,7 @@
-from operator import attrgetter
-from typing import Union, Optional, TypeVar, Iterable
+from typing import Union, Optional
 
 import dis_snek
+from cache import AsyncTTL
 from dis_snek import Snake
 from dis_snek.models import Guild, Role, Member, message_command, listen, slash_command, slash_option, \
     InteractionContext, AutocompleteContext, Embed, SelectOption, Select, ActionRow, Button
@@ -10,6 +10,12 @@ from dis_snek.models.scale import Scale
 
 # Why if this needed!?
 dis_snek.models.Role.__hash__ = dis_snek.models.SnowflakeObject.__hash__
+
+from mcstatus import MinecraftServer
+from mcstatus.pinger import PingResponse
+from mcstatus.querier import QueryResponse
+
+from utils import get
 
 
 class Team:
@@ -44,10 +50,13 @@ class TeamScale(Scale):
         self.bot: Snake = bot
         self.teams: list[Team] = []
         self.guild: Guild
+        self.server = MinecraftServer.lookup('minecraftnstuff.apexmc.co')
+
+
 
     async def team_autocomplete(self, ctx: AutocompleteContext, team: str):
         teams = [str(team_) for team_ in self.teams
-                  if (team_.name.startswith(team) or team_.name.startswith('Team ' + team))]
+                 if (team_.name.startswith(team) or team_.name.startswith('Team ' + team))]
         await ctx.send(choices=teams)
 
     # noinspection PyAttributeOutsideInit
@@ -63,6 +72,8 @@ class TeamScale(Scale):
 
         self.alert_role = await self.guild.get_role(916508698698973225)
 
+        print(self.bot.interactions[910984528351338557].keys())
+
         # for member in self.guild.members:
         #     if not await member.has_role(self.alert_role):
         #         await member.add_role(self.alert_role)
@@ -75,8 +86,6 @@ class TeamScale(Scale):
         print('Member added')
         await member.member.add_role(self.alert_role)
 
-
-
     @message_command(name='teams')
     async def teams(self, ctx):
         """Show current teams"""
@@ -87,8 +96,8 @@ class TeamScale(Scale):
                    description='Join a team')
     @slash_option('team', 'Which team to join', 3, True, True)
     async def join_team(self, ctx: InteractionContext,
-                         team: str
-                         ):
+                        team: str
+                        ):
         team = ' '.join(team.split('_'))
 
         for team_ in self.teams:
@@ -223,38 +232,49 @@ class TeamScale(Scale):
 
             await ctx.send('Roles changed!', ephemeral=True)
 
+    @slash_command(name='server', sub_cmd_name='info')
+    async def server_info(self, ctx: InteractionContext):
+        # await ctx.defer()
+        print('deferred')
+        status: PingResponse = await self.server_status()
+        # self.server_status.__call__()
+        print('statused')
+        embed = Embed(title=self.server.host, description=status.description)
+        embed.add_field('Ping:', str(status.latency) + ' ms', inline=True)
+        embed.add_field('Online:', f'{status.players.online}/{status.players.max}', inline=True)
+
+        await ctx.send(embeds=[embed])
+
+    @slash_command(name='server', sub_cmd_name='players')
+    async def server_players(self, ctx: InteractionContext):
+        query: QueryResponse = await self.server_query()
+        embed = Embed(
+            title='Online Players:', description='\n'.join(query.players.names)
+        )
+        await ctx.send(embeds=[embed])
+
+    @AsyncTTL(time_to_live=60)
+    async def server_status(self) -> PingResponse:
+        print('getting status')
+        status = await self.server.async_status()
+        print(status.raw)
+        return status
+
+    @AsyncTTL(time_to_live=600)
+    async def server_query(self) -> QueryResponse:
+        print('getting query')
+        query = await self.server.async_query()
+        print(query.raw)
+        return query
+
+
 def setup(bot):
     TeamScale(bot)
 
 
-_T = TypeVar('_T')
-def get(iterable: Iterable[_T], **attrs) -> Optional[_T]:
-
-    _all = all
-    attrget = attrgetter
-
-    if len(attrs) == 1:
-        k, v = attrs.popitem()
-        pred = attrget(k.replace('__', '.'))
-        for elem in iterable:
-            if pred(elem) == v:
-                return elem
-        return None
-
-    converted = [
-        (attrget(attr.replace('__', '.')), value)
-        for attr, value in attrs.items()
-    ]
-
-    for elem in iterable:
-        if _all(pred(elem) == value for pred, value in converted):
-            return elem
-    return None
-
 async def get_role(guild: Guild, id_or_name: Union[int, str]) -> Optional[Role]:
     if isinstance(id_or_name, int) or id_or_name.isnumeric():
         return await guild.get_role(id_or_name)
-    else:
-        if id_or_name.startswith('<@&') and id_or_name.endswith('>') and id_or_name[2:-1].isdigit():
-            return await guild.get_role(id_or_name[2:-1])
-        return get(guild.roles, name=id_or_name)
+    if id_or_name.startswith('<@&') and id_or_name.endswith('>') and id_or_name[2:-1].isdigit():
+        return await guild.get_role(id_or_name[2:-1])
+    return get(guild.roles, name=id_or_name)

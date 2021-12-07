@@ -1,3 +1,5 @@
 dis-snek
 python-dotenv
 orjson
+mcstatus
+async-cache
