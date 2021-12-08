@@ -247,9 +247,9 @@ class TeamScale(Scale):
 
     @slash_command(name='server', sub_cmd_name='players')
     async def server_players(self, ctx: InteractionContext):
-        query: QueryResponse = await self.server_query()
+        status: PingResponse = await self.server_status()
         embed = Embed(
-            title='Online Players:', description='\n'.join(query.players.names)
+            title='Online Players:', description='\n'.join((player.name for player in status.players.sample))
         )
         await ctx.send(embeds=[embed])
 
