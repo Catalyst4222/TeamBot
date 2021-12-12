@@ -11,6 +11,9 @@ from dis_snek.models.scale import Scale
 # Why if this needed!?
 dis_snek.models.Role.__hash__ = dis_snek.models.SnowflakeObject.__hash__
 
+from dis_snek.tasks import Task
+from dis_snek.tasks.triggers import IntervalTrigger
+
 from mcstatus import MinecraftServer
 from mcstatus.pinger import PingResponse
 from mcstatus.querier import QueryResponse
@@ -72,14 +75,27 @@ class TeamScale(Scale):
 
         self.alert_role = await self.guild.get_role(916508698698973225)
 
-        print(self.bot.interactions[910984528351338557].keys())
+        # print(self.bot.interactions[910984528351338557].keys())
 
+        self.update_status.start()
+        await self.update_status.callback()
         # for member in self.guild.members:
         #     if not await member.has_role(self.alert_role):
         #         await member.add_role(self.alert_role)
         #         await asyncio.sleep(5)
         #     print('Member checked')
         # print('Done')
+
+    @Task.create(IntervalTrigger(minutes=5))
+    async def update_status(self):
+        print('Updating status')
+        server_status = await self.server_status()
+        amount = server_status.players.online
+        activity = f'Minecraft with {amount} people'
+        if amount >= 6:
+            activity += '!'
+        await self.bot.change_presence(activity=activity)
+        ...
 
     @listen()
     async def on_member_add(self, member: MemberAdd):
@@ -245,6 +261,8 @@ class TeamScale(Scale):
 
         await ctx.send(embeds=[embed])
 
+        await self.update_status.callback()
+
     @slash_command(name='server', sub_cmd_name='players')
     async def server_players(self, ctx: InteractionContext):
         status: PingResponse = await self.server_status()
@@ -253,14 +271,16 @@ class TeamScale(Scale):
         )
         await ctx.send(embeds=[embed])
 
-    @AsyncTTL(time_to_live=60)
+        await self.update_status.callback()
+
+    # @AsyncTTL(time_to_live=60)
     async def server_status(self) -> PingResponse:
         print('getting status')
         status = await self.server.async_status()
-        print(status.raw)
+        # print(status.raw)
         return status
 
-    @AsyncTTL(time_to_live=600)
+    # @AsyncTTL(time_to_live=600)
     async def server_query(self) -> QueryResponse:
         print('getting query')
         query = await self.server.async_query()
